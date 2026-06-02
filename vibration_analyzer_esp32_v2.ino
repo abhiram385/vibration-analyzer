@@ -1,13 +1,13 @@
-/* =============================================================
+/* 
  *  Real-Time Vibration Analyzer — ESP32 Standalone (v1)
  *  Hardware : ESP32 DevKit V1 (CP2102, 30-pin)
  *  Sensor   : MPU-6050 MEMS 3-axis accelerometer (I2C, 0x68)
  *  Libraries: WiFi, WebServer, Wire, arduinoFFT
- *
+ 
  *  v1 runs the full pipeline on a single chip:
  *  sampling, windowing, FFT, fault detection, HTTP dashboard.
  *  See v2 for dual-chip architecture with dedicated DSP node.
- * ============================================================= */
+  */
 
 #include <Wire.h>
 #include <WiFi.h>
@@ -22,7 +22,7 @@ WebServer server(80);
 /* ─── FFT configuration ─────────────────────────────────────── 
  *  1024 points chosen over 512 for two reasons:
  *  1. Frequency resolution = sample_rate / FFT_size.
- *     1024 pts → 0.977 Hz/bin vs 512 pts → 1.95 Hz/bin.
+ *     1024 pts -> 0.977 Hz/bin vs 512 pts -> 1.95 Hz/bin.
  *     Finer resolution is critical for distinguishing closely
  *     spaced mechanical fault frequencies.
  *  2. FFT algorithms require power-of-2 sizes for efficiency.
