@@ -1,0 +1,29 @@
+# Arduino build artifacts
+build/
+*.elf
+*.bin
+*.hex
+*.map
+
+# STM32CubeIDE
+Debug/
+Release/
+*.launch
+*.cproject
+*.project
+.settings/
+
+# VS Code
+.vscode/
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+desktop.ini
+
+# Credentials — NEVER commit these
+*credentials*
+*secrets*
+wifi_config.h
