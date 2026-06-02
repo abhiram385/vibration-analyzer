@@ -1,37 +1,46 @@
 /* =============================================================
- *  Real-Time Vibration Analyzer — ESP32 (Dashboard Node)
+ *  Real-Time Vibration Analyzer — ESP32 Standalone (v1)
  *  Hardware : ESP32 DevKit V1 (CP2102, 30-pin)
- *  Input    : UART2 @ 115200 baud ← STM32F401 (GPIO16=RX)
- *  Output   : HTTP dashboard on port 80 (local Wi-Fi)
- *  Role     : Receive pre-computed FFT results from STM32,
- *             serve live web dashboard — no DSP on this node
- * =============================================================
- *  UART format from STM32:
- *  "FREQ:73.24,MAG:0.3841,FAULT:1\n"
+ *  Sensor   : MPU-6050 MEMS 3-axis accelerometer (I2C, 0x68)
+ *  Libraries: WiFi, WebServer, Wire, arduinoFFT
+ *
+ *  v1 runs the full pipeline on a single chip:
+ *  sampling, windowing, FFT, fault detection, HTTP dashboard.
+ *  See v2 for dual-chip architecture with dedicated DSP node.
  * ============================================================= */
 
+#include <Wire.h>
 #include <WiFi.h>
 #include <WebServer.h>
+#include <arduinoFFT.h>
 
-/* ─── Wi-Fi credentials ─────────────────────────────────────── */
 const char* ssid = "YOUR_WIFI";
 const char* pass = "YOUR_PASS";
 
-/* ─── UART2 — receives data from STM32 ─────────────────────── */
-#define STM32_UART_RX  16   /* GPIO16 = UART2 RX on ESP32       */
-#define STM32_UART_TX  17   /* GPIO17 = UART2 TX (unused here)  */
-#define STM32_BAUD     115200
-
-/* ─── Web server on port 80 ─────────────────────────────────── */
 WebServer server(80);
 
-/* ─── Global state (updated on each UART receive) ───────────── */
+/* ─── FFT configuration ─────────────────────────────────────── 
+ *  1024 points chosen over 512 for two reasons:
+ *  1. Frequency resolution = sample_rate / FFT_size.
+ *     1024 pts → 0.977 Hz/bin vs 512 pts → 1.95 Hz/bin.
+ *     Finer resolution is critical for distinguishing closely
+ *     spaced mechanical fault frequencies.
+ *  2. FFT algorithms require power-of-2 sizes for efficiency.
+ *     1024 is the optimal balance between resolution and
+ *     computation time on embedded hardware.
+ * ──────────────────────────────────────────────────────────── */
+#define SAMPLES      1024
+#define SAMPLE_RATE  1000
+
+float vReal[SAMPLES];
+float vImag[SAMPLES];
+ArduinoFFT<float> FFT = ArduinoFFT<float>(vReal, vImag, SAMPLES, SAMPLE_RATE);
+
 float  latest_freq  = 0.0;
 float  latest_mag   = 0.0;
 int    latest_fault = 0;
 String last_updated = "No data yet";
 
-/* ─── HTML dashboard (identical UI to v1) ───────────────────── */
 const char PAGE[] PROGMEM = R"rawhtml(
 <!DOCTYPE html>
 <html>
@@ -50,7 +59,8 @@ const char PAGE[] PROGMEM = R"rawhtml(
     }
     h1 { font-size: 1.2rem; letter-spacing: 4px; margin-bottom: 2rem; }
     .card { background: #1a1a1a; border: 1px solid #00ff88; border-radius: 8px;
-            padding: 1.5rem 2rem; margin: 0.5rem; width: 260px; text-align: center; }
+            padding: 1.5rem 2rem; margin: 0.5rem; width: 260px; text-align: center;
+            transition: all 0.3s; }
     body.fault .card  { border-color: #ff4444; background: #2a0000; }
     body.fault h1     { color: #ff4444; }
     .label { font-size: 0.75rem; color: #888; margin-bottom: 6px; }
@@ -84,10 +94,9 @@ const char PAGE[] PROGMEM = R"rawhtml(
   <button id="start-btn" onclick="enableAudio()">enable monitoring + alarm</button>
   <div id="status"></div>
   <script>
-    var audioCtx=null,oscillator=null,gainNode=null,alarmOn=false,muted=false,monitoring=false;
+    var audioCtx=null,oscillator=null,gainNode=null,alarmOn=false,muted=false;
     function enableAudio(){
       audioCtx=new(window.AudioContext||window.webkitAudioContext)();
-      monitoring=true;
       document.getElementById('start-btn').textContent='mute alarm';
       document.getElementById('start-btn').onclick=muteAlarm;
       document.getElementById('status').textContent='monitoring active';
@@ -142,12 +151,10 @@ const char PAGE[] PROGMEM = R"rawhtml(
 </html>
 )rawhtml";
 
-/* ─── Route: serve dashboard ────────────────────────────────── */
 void handleRoot() {
     server.send(200, "text/html", String(PAGE));
 }
 
-/* ─── Route: serve live JSON data ───────────────────────────── */
 void handleData() {
     String json = "{";
     json += "\"freq\":"   + String(latest_freq,  2) + ",";
@@ -158,68 +165,83 @@ void handleData() {
     server.send(200, "application/json", json);
 }
 
-/* ─── Parse UART string from STM32 ─────────────────────────── */
-/* Expected format: "FREQ:73.24,MAG:0.3841,FAULT:1\n"          */
-void parseUARTString(String line) {
-    line.trim();
-    if (!line.startsWith("FREQ:")) return;  /* Discard malformed lines */
+void readMPU(float* buf) {
+    for (int i = 0; i < SAMPLES; i++) {
+        Wire.beginTransmission(0x68);
+        Wire.write(0x3B);
+        Wire.endTransmission(false);
+        Wire.requestFrom(0x68, 2);
+        int16_t ax = Wire.read() << 8 | Wire.read();
+        buf[i] = ax / 16384.0f;
+        delayMicroseconds(1000);
+    }
+}
 
-    /* Extract FREQ */
-    int f_start = line.indexOf("FREQ:") + 5;
-    int f_end   = line.indexOf(",MAG:");
-    if (f_start < 0 || f_end < 0) return;
-    latest_freq = line.substring(f_start, f_end).toFloat();
+void runFFT() {
+    for (int i = 0; i < SAMPLES; i++) vImag[i] = 0;
 
-    /* Extract MAG */
-    int m_start = line.indexOf("MAG:") + 4;
-    int m_end   = line.indexOf(",FAULT:");
-    if (m_start < 0 || m_end < 0) return;
-    latest_mag = line.substring(m_start, m_end).toFloat();
+    /* Hamming window applied to reduce spectral leakage.
+     * A finite sample window abruptly truncates the signal,
+     * creating artificial frequency components in the FFT output.
+     * Hamming tapers the signal smoothly to zero at both ends,
+     * eliminating the abrupt cutoff and producing a cleaner spectrum.
+     * A rectangular window would spread energy from the dominant
+     * frequency into adjacent bins, masking real fault signatures. */
+    FFT.windowing(FFTWindow::Hamming, FFTDirection::Forward);
 
-    /* Extract FAULT */
-    int fault_start = line.indexOf("FAULT:") + 6;
-    if (fault_start < 0) return;
-    latest_fault = line.substring(fault_start).toInt();
+    FFT.compute(FFTDirection::Forward);
+    FFT.complexToMagnitude();
 
-    /* Update timestamp */
+    /* Skip bin 0 — DC offset from static gravity component */
+    float peak_val = 0;
+    int   peak_bin = 1;
+    for (int i = 1; i < SAMPLES / 2; i++) {
+        if (vReal[i] > peak_val) {
+            peak_val = vReal[i];
+            peak_bin = i;
+        }
+    }
+
+    latest_freq  = (peak_bin * SAMPLE_RATE) / (float)SAMPLES;
+    latest_mag   = peak_val / (SAMPLES / 2);
+
+    /* Fault thresholds from DC motor testing:
+     * Healthy: freq < 3 Hz, mag < 0.005g
+     * Imbalance fault: spike at 50-100 Hz, mag > 0.1g */
+    latest_fault = (latest_mag > 0.1 || latest_freq > 5.0) ? 1 : 0;
+
     unsigned long s = millis() / 1000;
     last_updated = String(s / 60) + "m " + String(s % 60) + "s uptime";
 
-    Serial.printf("[UART] Freq: %.2f Hz  Mag: %.4f g  Fault: %d\n",
+    Serial.printf("Freq: %.2f Hz  Mag: %.4f g  Fault: %d\n",
                   latest_freq, latest_mag, latest_fault);
 }
 
-/* ─── Setup ─────────────────────────────────────────────────── */
 void setup() {
     Serial.begin(115200);
+    Wire.begin(21, 22);
 
-    /* UART2 for STM32 communication */
-    Serial2.begin(STM32_BAUD, SERIAL_8N1, STM32_UART_RX, STM32_UART_TX);
-    Serial.println("UART2 listening for STM32 data...");
+    Wire.beginTransmission(0x68);
+    Wire.write(0x6B);
+    Wire.write(0x00);
+    Wire.endTransmission();
 
-    /* Connect to Wi-Fi */
     WiFi.begin(ssid, pass);
-    Serial.print("Connecting to Wi-Fi");
+    Serial.print("Connecting");
     while (WiFi.status() != WL_CONNECTED) {
         delay(500);
         Serial.print(".");
     }
-    Serial.println("\nConnected. Dashboard at: http://" + WiFi.localIP().toString());
+    Serial.println("\nConnected. Open: http://" + WiFi.localIP().toString());
 
-    /* Register HTTP routes */
     server.on("/",     handleRoot);
     server.on("/data", handleData);
     server.begin();
     Serial.println("Web server started.");
 }
 
-/* ─── Main loop ─────────────────────────────────────────────── */
 void loop() {
-    server.handleClient();  /* Serve HTTP requests */
-
-    /* Read complete line from STM32 UART */
-    if (Serial2.available()) {
-        String line = Serial2.readStringUntil('\n');
-        parseUARTString(line);
-    }
+    server.handleClient();
+    readMPU(vReal);
+    runFFT();
 }
