@@ -1,0 +1,47 @@
+
+<h2 class="sr-only">Mockup of the ESP32-hosted web dashboard showing healthy and fault states side by side</h2>
+<div style="padding:1rem 0;">
+  <p style="font-size:13px;color:var(--color-text-secondary);margin:0 0 1rem">ESP32 local HTTP dashboard — two states captured during testing</p>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+
+    <!-- Healthy state -->
+    <div style="background:#0d0d0d;border-radius:10px;padding:1.5rem;font-family:monospace;">
+      <p style="color:#00ff88;font-size:11px;letter-spacing:3px;text-align:center;margin:0 0 1rem">VIBRATION ANALYZER</p>
+      <div style="background:#1a1a1a;border:1px solid #00ff88;border-radius:6px;padding:1rem;margin-bottom:8px;text-align:center;">
+        <p style="color:#888;font-size:10px;margin:0 0 4px">DOMINANT FREQUENCY</p>
+        <p style="color:#00ff88;font-size:24px;font-weight:bold;margin:0">2.93 Hz</p>
+      </div>
+      <div style="background:#1a1a1a;border:1px solid #00ff88;border-radius:6px;padding:1rem;margin-bottom:8px;text-align:center;">
+        <p style="color:#888;font-size:10px;margin:0 0 4px">MAGNITUDE</p>
+        <p style="color:#00ff88;font-size:24px;font-weight:bold;margin:0">0.0031 g</p>
+      </div>
+      <div style="background:#1a1a1a;border:1px solid #00ff88;border-radius:6px;padding:1rem;margin-bottom:8px;text-align:center;">
+        <p style="color:#888;font-size:10px;margin:0 0 4px">FAULT STATUS</p>
+        <p style="color:#00ff88;font-size:24px;font-weight:bold;margin:0">OK</p>
+      </div>
+      <p style="color:#555;font-size:10px;text-align:center;margin:8px 0 0">Last updated: 4m 12s uptime</p>
+      <p style="color:#00aa55;font-size:10px;text-align:center;margin:4px 0 0">● Healthy — balanced motor</p>
+    </div>
+
+    <!-- Fault state -->
+    <div style="background:#1a0000;border-radius:10px;padding:1.5rem;font-family:monospace;">
+      <p style="color:#ff4444;font-size:11px;letter-spacing:2px;text-align:center;margin:0 0 1rem">!! FAULT DETECTED !!</p>
+      <div style="background:#2a0000;border:1px solid #ff4444;border-radius:6px;padding:1rem;margin-bottom:8px;text-align:center;">
+        <p style="color:#888;font-size:10px;margin:0 0 4px">DOMINANT FREQUENCY</p>
+        <p style="color:#ff4444;font-size:24px;font-weight:bold;margin:0">73.24 Hz</p>
+      </div>
+      <div style="background:#2a0000;border:1px solid #ff4444;border-radius:6px;padding:1rem;margin-bottom:8px;text-align:center;">
+        <p style="color:#888;font-size:10px;margin:0 0 4px">MAGNITUDE</p>
+        <p style="color:#ff4444;font-size:24px;font-weight:bold;margin:0">0.3841 g</p>
+      </div>
+      <div style="background:#2a0000;border:1px solid #ff4444;border-radius:6px;padding:1rem;margin-bottom:8px;text-align:center;">
+        <p style="color:#888;font-size:10px;margin:0 0 4px">FAULT STATUS</p>
+        <p style="color:#ff4444;font-size:24px;font-weight:bold;margin:0">FAULT</p>
+      </div>
+      <p style="color:#555;font-size:10px;text-align:center;margin:8px 0 0">Last updated: 4m 44s uptime</p>
+      <p style="color:#ff4444;font-size:10px;text-align:center;margin:4px 0 0">⚠ Audio alarm active — 880/440Hz square wave</p>
+    </div>
+
+  </div>
+  <p style="font-size:11px;color:var(--color-text-secondary);margin:1rem 0 0;text-align:center">Dashboard served at http://[ESP32-IP] · No cloud dependency · Accessible from any device on LAN · 2s auto-refresh</p>
+</div>

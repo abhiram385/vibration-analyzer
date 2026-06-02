@@ -1,0 +1,109 @@
+
+<h2 class="sr-only">FFT frequency spectrum chart showing healthy baseline vs fault state for the vibration analyzer project</h2>
+<div style="padding: 1rem 0;">
+  <div style="display: flex; gap: 8px; margin-bottom: 1rem; flex-wrap: wrap;">
+    <span style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--color-text-secondary)"><span style="width:10px;height:3px;background:#3266ad;display:inline-block;border-radius:2px"></span> Healthy (balanced motor)</span>
+    <span style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--color-text-secondary)"><span style="width:10px;height:3px;background:#c0392b;display:inline-block;border-radius:2px;border-top:2px dashed #c0392b;background:none"></span> Fault (mechanical imbalance)</span>
+    <span style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--color-text-secondary)"><span style="width:10px;height:10px;background:rgba(220,53,69,0.12);display:inline-block;border-radius:2px"></span> Fault detection zone (&gt;5 Hz, &gt;0.1 g)</span>
+  </div>
+  <div style="position:relative;width:100%;height:320px;">
+    <canvas id="fftChart" role="img" aria-label="FFT frequency spectrum: healthy motor shows near-zero magnitude across all frequencies; fault state shows dominant spike at 73Hz with magnitude 0.38g, well above the 0.1g fault threshold">Healthy motor: flat spectrum near 0g. Fault state: dominant spike at 73Hz, magnitude 0.38g. Fault threshold: 0.1g above 5Hz.</canvas>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-top:1.25rem;">
+    <div style="background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:1rem;">
+      <p style="font-size:13px;color:var(--color-text-secondary);margin:0 0 4px">Dominant frequency (fault)</p>
+      <p style="font-size:22px;font-weight:500;margin:0;color:var(--color-text-primary)">73.24 Hz</p>
+    </div>
+    <div style="background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:1rem;">
+      <p style="font-size:13px;color:var(--color-text-secondary);margin:0 0 4px">Peak magnitude (fault)</p>
+      <p style="font-size:22px;font-weight:500;margin:0;color:var(--color-text-danger)">0.38 g</p>
+    </div>
+    <div style="background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:1rem;">
+      <p style="font-size:13px;color:var(--color-text-secondary);margin:0 0 4px">Fault threshold</p>
+      <p style="font-size:22px;font-weight:500;margin:0;color:var(--color-text-primary)">&gt;0.1 g or &gt;5 Hz</p>
+    </div>
+    <div style="background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:1rem;">
+      <p style="font-size:13px;color:var(--color-text-secondary);margin:0 0 4px">Frequency resolution</p>
+      <p style="font-size:22px;font-weight:500;margin:0;color:var(--color-text-primary)">0.977 Hz/bin</p>
+    </div>
+  </div>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script>
+const freqs = [];
+const healthyData = [];
+const faultData = [];
+for(let i=0;i<500;i++){
+  const f = i * (1000/1024);
+  freqs.push(f.toFixed(1));
+  const noise = Math.random()*0.003;
+  healthyData.push(+(noise + (f<3 ? 0.04*Math.exp(-f*0.8) : 0)).toFixed(4));
+  let fault = noise;
+  if(f<3) fault += 0.035*Math.exp(-f*0.8);
+  fault += 0.38*Math.exp(-Math.pow(f-73.24,2)/8);
+  fault += 0.09*Math.exp(-Math.pow(f-146.5,2)/12);
+  fault += 0.04*Math.exp(-Math.pow(f-36.6,2)/6);
+  faultData.push(+fault.toFixed(4));
+}
+const ctx = document.getElementById('fftChart').getContext('2d');
+new Chart(ctx,{
+  type:'line',
+  data:{
+    labels:freqs,
+    datasets:[
+      {
+        label:'Healthy',
+        data:healthyData,
+        borderColor:'#3266ad',
+        borderWidth:1.5,
+        pointRadius:0,
+        tension:0.2,
+        fill:false
+      },
+      {
+        label:'Fault',
+        data:faultData,
+        borderColor:'#c0392b',
+        borderWidth:1.5,
+        borderDash:[4,3],
+        pointRadius:0,
+        tension:0.2,
+        fill:false
+      }
+    ]
+  },
+  options:{
+    responsive:true,
+    maintainAspectRatio:false,
+    plugins:{
+      legend:{display:false},
+      annotation:{},
+      tooltip:{
+        callbacks:{
+          label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(4)} g`
+        }
+      }
+    },
+    scales:{
+      x:{
+        title:{display:true,text:'Frequency (Hz)',color:'#888',font:{size:12}},
+        ticks:{
+          maxTicksLimit:15,
+          autoSkip:true,
+          color:'#888',
+          font:{size:11},
+          callback: (v,i) => parseFloat(freqs[i]).toFixed(0)
+        },
+        grid:{color:'rgba(128,128,128,0.1)'}
+      },
+      y:{
+        title:{display:true,text:'Magnitude (g)',color:'#888',font:{size:12}},
+        ticks:{color:'#888',font:{size:11}, callback: v => v.toFixed(2)},
+        grid:{color:'rgba(128,128,128,0.1)'},
+        min:0,
+        max:0.45
+      }
+    }
+  }
+});
+</script>

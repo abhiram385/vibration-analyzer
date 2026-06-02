@@ -1,0 +1,78 @@
+
+<h2 class="sr-only">System architecture diagram for the vibration analyzer: MPU-6050 to ESP32 via I2C, ESP32 runs FFT and hosts HTTP dashboard</h2>
+<div style="padding:1rem 0;overflow-x:auto;">
+<svg viewBox="0 0 680 340" xmlns="http://www.w3.org/2000/svg" role="img" width="100%">
+  <title>Vibration Analyzer System Architecture</title>
+  <desc>MPU-6050 MEMS sensor connects via I2C to ESP32, which samples at 1kHz, applies Hamming windowing, runs 1024-point FFT, detects faults, and serves an HTTP dashboard over Wi-Fi.</desc>
+  <defs>
+    <marker id="arr" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#888"/>
+    </marker>
+  </defs>
+
+  <!-- MPU-6050 -->
+  <rect x="20" y="120" width="120" height="80" rx="6" fill="#E6F1FB" stroke="#378ADD" stroke-width="1"/>
+  <text x="80" y="148" text-anchor="middle" font-size="12" font-weight="500" fill="#0C447C">MPU-6050</text>
+  <text x="80" y="164" text-anchor="middle" font-size="10" fill="#185FA5">MEMS accel</text>
+  <text x="80" y="178" text-anchor="middle" font-size="10" fill="#185FA5">±2g range</text>
+  <text x="80" y="191" text-anchor="middle" font-size="10" fill="#185FA5">I2C addr 0x68</text>
+
+  <!-- Arrow MPU → ESP32 -->
+  <line x1="140" y1="160" x2="188" y2="160" stroke="#888" stroke-width="1.5" marker-end="url(#arr)"/>
+  <text x="164" y="152" text-anchor="middle" font-size="10" fill="#888">I2C</text>
+  <text x="164" y="174" text-anchor="middle" font-size="10" fill="#888">SDA=21</text>
+  <text x="164" y="185" text-anchor="middle" font-size="10" fill="#888">SCL=22</text>
+
+  <!-- ESP32 main block -->
+  <rect x="190" y="60" width="200" height="210" rx="6" fill="#EAF3DE" stroke="#639922" stroke-width="1.5"/>
+  <text x="290" y="85" text-anchor="middle" font-size="13" font-weight="500" fill="#27500A">ESP32 DevKit</text>
+  <text x="290" y="100" text-anchor="middle" font-size="10" fill="#3B6D11">CP2102 · 240MHz dual-core</text>
+
+  <!-- Internal pipeline boxes -->
+  <rect x="208" y="112" width="164" height="28" rx="4" fill="#C0DD97" stroke="#639922" stroke-width="0.5"/>
+  <text x="290" y="130" text-anchor="middle" font-size="11" fill="#27500A">Sample 1024pts @ 1kHz</text>
+
+  <rect x="208" y="148" width="164" height="28" rx="4" fill="#C0DD97" stroke="#639922" stroke-width="0.5"/>
+  <text x="290" y="166" text-anchor="middle" font-size="11" fill="#27500A">Hamming window</text>
+
+  <rect x="208" y="184" width="164" height="28" rx="4" fill="#C0DD97" stroke="#639922" stroke-width="0.5"/>
+  <text x="290" y="202" text-anchor="middle" font-size="11" fill="#27500A">1024-pt FFT (arduinoFFT)</text>
+
+  <rect x="208" y="220" width="164" height="28" rx="4" fill="#C0DD97" stroke="#639922" stroke-width="0.5"/>
+  <text x="290" y="238" text-anchor="middle" font-size="11" fill="#27500A">Fault detect (mag &gt;0.1g|f &gt;5Hz)</text>
+
+  <!-- Internal arrows -->
+  <line x1="290" y1="140" x2="290" y2="148" stroke="#3B6D11" stroke-width="1" marker-end="url(#arr)"/>
+  <line x1="290" y1="176" x2="290" y2="184" stroke="#3B6D11" stroke-width="1" marker-end="url(#arr)"/>
+  <line x1="290" y1="212" x2="290" y2="220" stroke="#3B6D11" stroke-width="1" marker-end="url(#arr)"/>
+
+  <!-- Arrow ESP32 → HTTP Server block -->
+  <line x1="390" y1="175" x2="438" y2="175" stroke="#888" stroke-width="1.5" marker-end="url(#arr)"/>
+  <text x="414" y="167" text-anchor="middle" font-size="10" fill="#888">HTTP</text>
+  <text x="414" y="185" text-anchor="middle" font-size="10" fill="#888">/data JSON</text>
+
+  <!-- HTTP Server block -->
+  <rect x="440" y="130" width="120" height="90" rx="6" fill="#FAEEDA" stroke="#BA7517" stroke-width="1"/>
+  <text x="500" y="155" text-anchor="middle" font-size="12" font-weight="500" fill="#633806">Web server</text>
+  <text x="500" y="170" text-anchor="middle" font-size="10" fill="#854F0B">port 80</text>
+  <text x="500" y="184" text-anchor="middle" font-size="10" fill="#854F0B">/ → dashboard</text>
+  <text x="500" y="198" text-anchor="middle" font-size="10" fill="#854F0B">/data → JSON</text>
+  <text x="500" y="211" text-anchor="middle" font-size="10" fill="#854F0B">2s poll interval</text>
+
+  <!-- Arrow HTTP → Browser -->
+  <line x1="560" y1="175" x2="608" y2="175" stroke="#888" stroke-width="1.5" marker-end="url(#arr)"/>
+  <text x="584" y="167" text-anchor="middle" font-size="10" fill="#888">Wi-Fi</text>
+  <text x="584" y="185" text-anchor="middle" font-size="10" fill="#888">LAN</text>
+
+  <!-- Browser block -->
+  <rect x="610" y="130" width="58" height="90" rx="6" fill="#EEEDFE" stroke="#534AB7" stroke-width="1"/>
+  <text x="639" y="160" text-anchor="middle" font-size="11" font-weight="500" fill="#26215C">Any</text>
+  <text x="639" y="174" text-anchor="middle" font-size="11" fill="#3C3489">browser</text>
+  <text x="639" y="192" text-anchor="middle" font-size="10" fill="#534AB7">no cloud</text>
+  <text x="639" y="205" text-anchor="middle" font-size="10" fill="#534AB7">required</text>
+
+  <!-- FFT resolution note -->
+  <text x="290" y="295" text-anchor="middle" font-size="10" fill="#888">Freq resolution: 1000Hz ÷ 1024 = 0.977 Hz/bin · Analysis window: 1.024s</text>
+  <text x="290" y="310" text-anchor="middle" font-size="10" fill="#888">ax raw = Wire.read() &lt;&lt;8 | Wire.read() · scaled: ax/16384.0f → g</text>
+</svg>
+</div>
