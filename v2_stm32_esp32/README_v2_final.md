@@ -1,0 +1,173 @@
+# Vibration Analyzer v2 — STM32F401 + ESP32 Dual-Chip Architecture
+
+Upgrade from [v1 (ESP32 standalone)](../README.md). DSP offloaded to a dedicated ARM Cortex-M4, ESP32 reduced to a pure display node.
+
+---
+
+## Live Documentation
+
+| Resource | Description |
+|----------|-------------|
+| [V2 System Architecture Diagram](https://abhiram385.github.io/vibration-analyzer/v2_stm32_esp32/docs/vibration_analyzer_v2_architecture.html) | Dual-chip block diagram — STM32 DSP node + ESP32 display node |
+| [FFT Spectrum — Healthy vs Fault](https://abhiram385.github.io/vibration-analyzer/docs/vibration_analyzer_fft_plot.html) | Interactive chart — dominant frequency spike at 73.24 Hz |
+| [Dashboard Mockup](https://abhiram385.github.io/vibration-analyzer/docs/vibration_analyzer_dashboard_mockup.html) | ESP32 HTTP dashboard, healthy and fault states |
+
+---
+
+## Why v2?
+
+In v1, the ESP32 handled sampling, FFT computation, and HTTP serving simultaneously. Running a 1024-point FFT alongside an active web server on a single core introduced CPU contention — the analysis window could be disrupted by incoming HTTP requests. 
+
+v2 separates concerns across two chips:
+
+| Responsibility | v1 (ESP32 only) | v2 (STM32 + ESP32) |
+|---|---|---|
+| Sampling | ESP32 | STM32F401 |
+| Windowing + FFT | ESP32 (arduinoFFT) | STM32F401 (CMSIS-DSP) |
+| Fault detection | ESP32 | STM32F401 |
+| Dashboard + HTTP | ESP32 | ESP32 (dedicated) |
+| DSP hardware | Software only | ARM Cortex-M4 FPU |
+
+The STM32F401's ARM Cortex-M4 has a dedicated hardware FPU and CMSIS-DSP's `arm_rfft_fast_f32()` runs the FFT significantly faster than a software implementation, freeing the ESP32 entirely for network tasks.
+
+---
+
+## Hardware
+
+| Component | Details |
+|-----------|---------|
+| DSP node | STM32F401 BlackPill (ARM Cortex-M4 @ 84 MHz) |
+| Display node | ESP32 DevKit V1 (CP2102, 30-pin) |
+| Sensor | MPU-6050 MEMS accelerometer (I2C, addr 0x68) |
+| STM32 I2C | SDA → PB7, SCL → PB6 |
+| STM32→ESP32 | UART2 TX (PA2) → ESP32 GPIO16 (RX) |
+| Baud rate | 115200 |
+
+---
+
+## System Architecture
+
+```
+MPU-6050 (I2C 0x68)
+    │
+    │  I2C · SDA=PB7 · SCL=PB6
+    ▼
+STM32F401 — DSP Node
+    ├─ Sample 1024 pts @ 1 kHz via HAL_I2C
+    ├─ Apply Hamming window (arm_mult_f32)
+    ├─ 1024-pt real FFT (arm_rfft_fast_f32)
+    ├─ Magnitude spectrum (arm_cmplx_mag_f32)
+    ├─ Peak bin → dominant frequency (Hz)
+    ├─ Fault: magnitude > 0.1g OR frequency > 5 Hz
+    └─ UART TX @ 115200: "FREQ:73.24,MAG:0.3841,FAULT:1\n"
+         │
+         │  UART · PA2 → GPIO16 · 115200 baud
+         ▼
+ESP32 DevKit — Display Node
+    ├─ UART RX: parse freq, mag, fault flag
+    ├─ HTTP server port 80
+    │    ├─ GET /      → HTML dashboard
+    │    └─ GET /data  → live JSON
+    └─ Wi-Fi LAN · no cloud · 2s refresh
+         │
+         │  Wi-Fi · LAN only
+         ▼
+    Any browser on local network
+```
+
+---
+
+## UART Protocol
+
+STM32 transmits one line per analysis window (~1.024s):
+
+```
+FREQ:73.24,MAG:0.3841,FAULT:1\n
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| FREQ | float (2dp) | Dominant frequency in Hz |
+| MAG | float (4dp) | Peak magnitude in g |
+| FAULT | int (0/1) | 0 = OK, 1 = fault detected |
+
+---
+
+## STM32 DSP Pipeline
+
+### 1. Sampling
+```c
+uint8_t reg = MPU6050_ACCEL_XOUT_H;
+HAL_I2C_Master_Transmit(&hi2c1, MPU6050_ADDR, &reg, 1, HAL_MAX_DELAY);
+HAL_I2C_Master_Receive (&hi2c1, MPU6050_ADDR, raw,  2, HAL_MAX_DELAY);
+ax_raw    = (int16_t)(raw[0] << 8 | raw[1]);
+samples[i] = (float32_t)ax_raw / 16384.0f;  // ±2g range
+HAL_Delay(1);  // 1ms = 1kHz
+```
+
+### 2. Hamming Window
+```c
+// Pre-computed: w(n) = 0.54 - 0.46*cos(2π*n/(N-1))
+arm_mult_f32(samples, hamming, fft_input, SAMPLES);
+```
+
+### 3. CMSIS-DSP FFT
+```c
+arm_rfft_fast_f32(&fft_instance, fft_input, fft_output, 0);
+arm_cmplx_mag_f32(fft_output, mag_spectrum, SAMPLES / 2);
+```
+
+### 4. Peak Detection + Fault Classification
+```c
+arm_max_f32(&mag_spectrum[1], (SAMPLES/2)-1, &peak_val, &peak_bin);
+*dominant_freq = (float)(peak_bin+1) * (1000.0f / 1024.0f);
+*dominant_mag  = peak_val / (SAMPLES / 2);
+*fault = (*dominant_mag > 0.1f || *dominant_freq > 5.0f) ? 1 : 0;
+```
+
+### 5. UART Transmit
+```c
+snprintf(buf, sizeof(buf), "FREQ:%.2f,MAG:%.4f,FAULT:%d\n", freq, mag, fault);
+HAL_UART_Transmit(&huart2, (uint8_t*)buf, len, HAL_MAX_DELAY);
+```
+
+---
+
+## Results
+
+Same fault signature as v1 — DC motor with controlled mechanical imbalance:
+
+| State | Dominant Freq | Magnitude | Fault |
+|-------|--------------|-----------|-------|
+| Healthy (balanced) | ~1–3 Hz | < 0.005 g | 0 (OK) |
+| Fault (imbalance) | **73.24 Hz** | **0.3841 g** | 1 (FAULT) |
+
+---
+
+## Files
+
+| File | Description |
+|------|-------------|
+| `vibration_analyzer_stm32_commented.c` | STM32F401 HAL C code — full DSP pipeline |
+| `vibration_analyzer_esp32_v2.ino` | ESP32 Arduino code — UART receive + HTTP dashboard |
+
+---
+
+## Dependencies
+
+**STM32 (CubeIDE):**
+- STM32 HAL (generated by CubeMX)
+- CMSIS-DSP (`arm_math.h`) — included in STM32Cube firmware package
+
+**ESP32 (Arduino IDE):**
+- WiFi, WebServer — ESP32 Arduino core
+- No FFT library required on ESP32 side
+
+---
+
+## Author
+
+**Abhiram Kurella**  
+B.Tech Electronics and Instrumentation Engineering  
+VNR Vignana Jyothi Institute of Engineering & Technology (2023–2027)  
+abhiram.kurella@gmail.com
