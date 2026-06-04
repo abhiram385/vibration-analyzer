@@ -14,6 +14,7 @@
  *  arm_rfft_fast_f32 uses those hardware instructions directly,
  *  running FFT faster and with zero network interference.
  *  ESP32 becomes a dedicated display node — one job only.
+ 
  * ============================================================= */
 
 #include "stm32f4xx_hal.h"
